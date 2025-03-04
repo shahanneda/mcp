@@ -8,6 +8,8 @@ from lumaai import LumaAI
 import asyncio
 import requests
 import time
+import tempfile
+import uuid
 
 # Set up logging to stderr
 logging.basicConfig(
@@ -20,48 +22,27 @@ logger = logging.getLogger("wallpaper")
 # Create an MCP server with dependencies
 mcp = FastMCP("LumaLabs", dependencies=["lumaai", "requests"])
 
-@mcp.tool()
-def generate_random_number(min_value: int = 1, max_value: int = 100) -> int:
-    """Generate a random integer between min_value and max_value (inclusive).
-    
-    Args:
-        min_value: The minimum possible value (default: 1)
-        max_value: The maximum possible value (default: 100)
-    
-    Returns:
-        A random integer
-    """
-    return random.randint(min_value, max_value)
+# Create a temporary directory for storing generated wallpapers
+WALLPAPER_DIR = os.path.join(tempfile.gettempdir(), "mcp_wallpapers")
+os.makedirs(WALLPAPER_DIR, exist_ok=True)
+logger.info(f"Using temporary directory for wallpapers: {WALLPAPER_DIR}")
 
-@mcp.tool()
-def generate_random_float(min_value: float = 0.0, max_value: float = 1.0) -> float:
-    """Generate a random float between min_value and max_value.
-    
-    Args:
-        min_value: The minimum possible value (default: 0.0)
-        max_value: The maximum possible value (default: 1.0)
-    
-    Returns:
-        A random float
-    """
-    logger.info(f"generate_random_float called with min_value={min_value}, max_value={max_value}")
-    return random.uniform(min_value, max_value)
-
-@mcp.tool()
-async def generate_image(prompt: str) -> Image:
-    """Generate an image using Luma Labs AI.
+# Helper functions
+async def _generate_image_helper(prompt: str) -> tuple[bytes | None, str | None, str]:
+    """Helper function to generate an image from a prompt.
     
     Args:
         prompt: Text description of the image to generate
     
     Returns:
-        The generated image
+        Tuple of (image_data, image_format, error_message)
+        If successful, error_message will be empty
     """
     # Initialize Luma client directly in the tool
     api_key = os.environ.get("LUMAAI_API_KEY")
     if not api_key:
         logger.error("LUMAAI_API_KEY environment variable not set")
-        return Image(data=b"Error: LUMAAI_API_KEY not set", format="text")
+        return None, None, "Error: LUMAAI_API_KEY not set"
     
     # Create Luma client
     try:
@@ -83,7 +64,7 @@ async def generate_image(prompt: str) -> Image:
             elif generation.state == "failed":
                 error_msg = f"Generation failed: {generation.failure_reason}"
                 logger.error(error_msg)
-                return Image(data=error_msg.encode(), format="text")
+                return None, None, error_msg
             
             logger.info("Waiting for image generation to complete...")
             attempts += 1
@@ -92,7 +73,7 @@ async def generate_image(prompt: str) -> Image:
         if not completed:
             error_msg = "Image generation timed out"
             logger.error(error_msg)
-            return Image(data=error_msg.encode(), format="text")
+            return None, None, error_msg
         
         # Download the image
         image_url = generation.assets.image
@@ -100,54 +81,34 @@ async def generate_image(prompt: str) -> Image:
         
         response = requests.get(image_url, stream=True)
         if response.status_code == 200:
-            # Return as an MCP Image
-            return Image(data=response.content, format="png")
+            # Return image data and format
+            return response.content, "png", ""
         else:
             error_msg = f"Failed to download image: HTTP {response.status_code}"
             logger.error(error_msg)
-            return Image(data=error_msg.encode(), format="text")
+            return None, None, error_msg
             
     except Exception as e:
-        logger.error(f"Error generating image: {e}")
         error_message = f"Error generating image: {str(e)}"
-        # Return an error image or placeholder
-        return Image(data=error_message.encode(), format="text")
+        logger.error(error_message)
+        return None, None, error_message
 
-@mcp.tool()
-def set_wallpaper(image_name: str = "example1") -> str:
-    """Set the wallpaper of the current user to one of the example images.
+def _set_wallpaper_helper(image_path: str) -> tuple[bool, str]:
+    """Helper function to set the wallpaper from a file path.
     
     Args:
-        image_name: The name of the image to use (example1, example2, or example3)
-                   without the .jpg extension
+        image_path: Full path to the image file
     
     Returns:
-        A message indicating the wallpaper was set
+        Tuple of (success, message)
     """
-    # Log function call
-    logger.info(f"set_wallpaper called with image_name={image_name}")
-    
-    # Map the image name to the full path
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    logger.info(f"Current directory: {current_dir}")
-    
-    # Handle different input formats (with or without extension)
-    if not image_name.endswith('.jpg'):
-        image_name = f"{image_name}.jpg"
-    
-    # Validate the image exists
-    valid_images = ["example1.jpg", "example2.jpg", "example3.jpg"]
-    if image_name not in valid_images:
-        logger.warning(f"Invalid image name: {image_name}")
-        return f"Error: {image_name} is not a valid option. Choose from: example1, example2, or example3"
-    
-    image_path = os.path.join(current_dir, image_name)
-    logger.info(f"Full image path: {image_path}")
+    logger.info(f"Setting wallpaper from path: {image_path}")
     
     # Check if the file exists
     if not os.path.exists(image_path):
-        logger.error(f"Image file not found: {image_path}")
-        return f"Error: Image file not found at {image_path}"
+        error_msg = f"Image file not found: {image_path}"
+        logger.error(error_msg)
+        return False, error_msg
     
     # Set the wallpaper using osascript (AppleScript)
     script = f'''
@@ -162,17 +123,118 @@ def set_wallpaper(image_name: str = "example1") -> str:
         # Restart the Dock to ensure the wallpaper change takes effect
         subprocess.check_call("killall Dock", shell=True)
         
-        logger.info(f"Wallpaper successfully set to {image_name}")
-        return f"Wallpaper set to {image_name}"
+        logger.info(f"Wallpaper successfully set to {image_path}")
+        return True, f"Wallpaper set to {os.path.basename(image_path)}"
     except subprocess.CalledProcessError as e:
         error_msg = f"Error setting wallpaper: {str(e)}"
         logger.error(error_msg)
-        return error_msg
+        return False, error_msg
 
-@mcp.resource("greeting://{name}")
-def get_greeting(name: str) -> str:
-    """Get a personalized greeting"""
-    return f"Hello, {name}!"
+async def _save_image_to_file(image_data: bytes, prompt: str) -> str:
+    """Save image data to a file in the temporary directory.
+    
+    Args:
+        image_data: The binary image data
+        prompt: The original prompt (used for filename)
+    
+    Returns:
+        The full path to the saved image file
+    """
+    # Create a filename based on the prompt and a UUID
+    safe_prompt = "".join(c if c.isalnum() else "_" for c in prompt)[:30]
+    filename = f"{safe_prompt}_{uuid.uuid4().hex[:8]}.png"
+    file_path = os.path.join(WALLPAPER_DIR, filename)
+    
+    # Save the image data to the file
+    with open(file_path, "wb") as f:
+        f.write(image_data)
+    
+    logger.info(f"Saved generated image to {file_path}")
+    return file_path
+
+
+@mcp.tool()
+async def generate_image(prompt: str) -> Image:
+    """Generate an image using Luma Labs AI.
+    
+    Args:
+        prompt: Text description of the image to generate
+    
+    Returns:
+        The generated image
+    """
+    image_data, image_format, error_message = await _generate_image_helper(prompt)
+    
+    if error_message:
+        return Image(data=error_message.encode(), format="text")
+    
+    return Image(data=image_data, format=image_format)
+
+@mcp.tool()
+async def generate_wallpaper(prompt: str) -> str:
+    """Generate a wallpaper image from a prompt and save it to a temporary directory.
+    
+    Args:
+        prompt: Text description of the wallpaper to generate
+    
+    Returns:
+        The path to the generated wallpaper image or an error message
+    """
+    logger.info(f"generate_wallpaper called with prompt: {prompt}")
+    
+    image_data, image_format, error_message = await _generate_image_helper(prompt)
+    
+    if error_message or image_data is None:
+        return f"Error generating wallpaper: {error_message}"
+    
+    # Save the image to a file
+    file_path = await _save_image_to_file(image_data, prompt)
+    
+    return f"Wallpaper generated and saved to: {file_path}"
+
+@mcp.tool()
+def set_image_from_path(image_path: str) -> str:
+    """Set the wallpaper using an image file from a specific path.
+    
+    Args:
+        image_path: Full path to the image file to use as wallpaper
+    
+    Returns:
+        A message indicating whether the wallpaper was set successfully
+    """
+    logger.info(f"set_image_from_path called with image_path: {image_path}")
+    
+    success, message = _set_wallpaper_helper(image_path)
+    return message
+
+@mcp.tool()
+async def generate_and_set_wallpaper(prompt: str) -> str:
+    """Generate a wallpaper from a prompt and set it as the wallpaper of the computer.
+    
+    Args:
+        prompt: Text description of the wallpaper to generate
+    
+    Returns:
+        A message indicating whether the wallpaper was generated and set successfully
+    """
+    logger.info(f"generate_and_set_wallpaper called with prompt: {prompt}")
+    
+    # Generate the image
+    image_data, image_format, error_message = await _generate_image_helper(prompt)
+    
+    if error_message or image_data is None:
+        return f"Error generating wallpaper: {error_message}"
+    
+    # Save the image to a file
+    file_path = await _save_image_to_file(image_data, prompt)
+    
+    # Set the wallpaper
+    success, message = _set_wallpaper_helper(file_path)
+    
+    if success:
+        return f"Wallpaper generated from prompt '{prompt}' and set successfully"
+    else:
+        return f"Wallpaper generated but failed to set: {message}"
 
 if __name__ == "__main__":
     # Log server startup
@@ -181,5 +243,3 @@ if __name__ == "__main__":
     # Run the server
     mcp.run()
     
-    # Note: The following code will never be reached because mcp.run() blocks
-    # until the server is terminated 
