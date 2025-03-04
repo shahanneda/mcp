@@ -5,8 +5,9 @@ import os
 import subprocess
 import logging
 from lumaai import LumaAI
-
-client = LumaAI()
+import asyncio
+import requests
+import time
 
 # Set up logging to stderr
 logging.basicConfig(
@@ -17,19 +18,7 @@ logging.basicConfig(
 logger = logging.getLogger("wallpaper")
 
 # Create an MCP server with dependencies
-mcp = FastMCP("LumaLabs", dependencies=["lumaai"])
-
-# Initialize the Luma API client
-@mcp.on_startup
-def initialize_luma(ctx):
-    # Get API key from environment variable
-    api_key = os.environ.get("LUMA_API_KEY")
-    if not api_key:
-        ctx.error("LUMA_API_KEY environment variable not set")
-        return
-    
-    # Store the client in the context
-    ctx.luma_client = LumaAI(api_key=api_key)
+mcp = FastMCP("LumaLabs", dependencies=["lumaai", "requests"])
 
 @mcp.tool()
 def generate_random_number(min_value: int = 1, max_value: int = 100) -> int:
@@ -59,7 +48,7 @@ def generate_random_float(min_value: float = 0.0, max_value: float = 1.0) -> flo
     return random.uniform(min_value, max_value)
 
 @mcp.tool()
-async def generate_image(prompt: str, ctx) -> Image:
+async def generate_image(prompt: str) -> Image:
     """Generate an image using Luma Labs AI.
     
     Args:
@@ -68,20 +57,61 @@ async def generate_image(prompt: str, ctx) -> Image:
     Returns:
         The generated image
     """
-    # Access the client from the lifespan context
-    luma_client = ctx.request_context.lifespan_context.get("luma_client")
+    # Initialize Luma client directly in the tool
+    api_key = os.environ.get("LUMAAI_API_KEY")
+    if not api_key:
+        logger.error("LUMAAI_API_KEY environment variable not set")
+        return Image(data=b"Error: LUMAAI_API_KEY not set", format="text")
     
-    if not luma_client:
-        return "Error: Luma API client not initialized. Make sure LUMA_API_KEY is set."
-    
-    # Generate the image
+    # Create Luma client
     try:
-        image_data = await luma_client.generate_image(prompt)
-        # Return as an MCP Image
-        return Image(data=image_data, format="png")
+        client = LumaAI(auth_token=api_key)
+        
+        # Start the generation
+        logger.info(f"Starting image generation with prompt: {prompt}")
+        generation = client.generations.image.create(prompt=prompt)
+        
+        # Poll until completion
+        completed = False
+        max_attempts = 30  # Prevent infinite loops
+        attempts = 0
+        
+        while not completed and attempts < max_attempts:
+            generation = client.generations.get(id=generation.id)
+            if generation.state == "completed":
+                completed = True
+            elif generation.state == "failed":
+                error_msg = f"Generation failed: {generation.failure_reason}"
+                logger.error(error_msg)
+                return Image(data=error_msg.encode(), format="text")
+            
+            logger.info("Waiting for image generation to complete...")
+            attempts += 1
+            await asyncio.sleep(2)  # Use asyncio.sleep in async function
+        
+        if not completed:
+            error_msg = "Image generation timed out"
+            logger.error(error_msg)
+            return Image(data=error_msg.encode(), format="text")
+        
+        # Download the image
+        image_url = generation.assets.image
+        logger.info(f"Image generated successfully, downloading from: {image_url}")
+        
+        response = requests.get(image_url, stream=True)
+        if response.status_code == 200:
+            # Return as an MCP Image
+            return Image(data=response.content, format="png")
+        else:
+            error_msg = f"Failed to download image: HTTP {response.status_code}"
+            logger.error(error_msg)
+            return Image(data=error_msg.encode(), format="text")
+            
     except Exception as e:
         logger.error(f"Error generating image: {e}")
-        return f"Error generating image: {str(e)}"
+        error_message = f"Error generating image: {str(e)}"
+        # Return an error image or placeholder
+        return Image(data=error_message.encode(), format="text")
 
 @mcp.tool()
 def set_wallpaper(image_name: str = "example1") -> str:
@@ -114,7 +144,11 @@ def set_wallpaper(image_name: str = "example1") -> str:
     image_path = os.path.join(current_dir, image_name)
     logger.info(f"Full image path: {image_path}")
     
-    print("testing!", file=sys.stderr)
+    # Check if the file exists
+    if not os.path.exists(image_path):
+        logger.error(f"Image file not found: {image_path}")
+        return f"Error: Image file not found at {image_path}"
+    
     # Set the wallpaper using osascript (AppleScript)
     script = f'''
     tell application "System Events" to tell every desktop to set picture to "{image_path}"
