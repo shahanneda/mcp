@@ -41,10 +41,6 @@ venv.bak/
 *.swp
 *.swo
 
-# Project specific
-mcpinfo.txt
-pythoninfo.txt
-
 # Logs
 *.log
 logs/
