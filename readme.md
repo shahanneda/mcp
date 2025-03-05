@@ -1,4 +1,4 @@
-# LumaLabs Wallpaper Generator
+# Wallpaper MCP
 
 Allows MCP clients to generate wallpaper images and set them as your desktop wallpaper on MacOS.
 
@@ -29,7 +29,7 @@ Allows MCP clients to generate wallpaper images and set them as your desktop wal
 ## Getting Started
 
 ### Prerequisites
-- macOS (for wallpaper setting functionality)
+- macOS
 - Luma Labs API key
 
 ### Getting a Luma Labs API Key
