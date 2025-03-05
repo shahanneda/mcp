@@ -33,26 +33,12 @@ Allows MCP clients to generate wallpaper images and set them as your desktop wal
 - Luma Labs API key
 
 ### Getting a Luma Labs API Key
-
-1. Visit [Luma Labs Dream Machine API](https://lumalabs.ai/dream-machine/api)
-4. Generate a new API key
-5. Copy your API key for use with this server
+Visit [Luma Labs Dream Machine API](https://lumalabs.ai/dream-machine/api)
 
 ### Installation
-
-1. Install the required packages:
-
 ```bash
-pip install "mcp[cli]" lumaai requests
+git clone git@github.com:shahanneda/wallpaper-mcp.git
 ```
-
-2. Clone this repository or download the server.py file:
-
-```bash
-git clone <repository-url>
-cd <repository-directory>
-```
-
 
 ### Integration with Claude Desktop
 To use this server with Claude Desktop, add the following to your Claude Desktop configuration file:
@@ -79,7 +65,6 @@ To use this server with Claude Desktop, add the following to your Claude Desktop
     }
 }
 ```
-
 Replace `/path/to/server.py` with the absolute path to your server.py file.
 
 ### Testing with MCP Inspector
