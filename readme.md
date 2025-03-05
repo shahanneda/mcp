@@ -26,6 +26,11 @@ Allows MCP clients to generate wallpaper images and set them as your desktop wal
   - **Input**: `prompt` (string) - Text description of the wallpaper to generate.
   - **Output**: A message indicating whether the wallpaper was generated and set successfully.
 
+### Video Demo
+https://www.youtube.com/watch?v=S1MA3t_gMq8
+[![video image](https://img.youtube.com/vi/S1MA3t_gMq8/0.jpg)](https://www.youtube.com/watch?v=S1MA3t_gMq8)
+
+
 ## Getting Started
 
 ### Prerequisites
