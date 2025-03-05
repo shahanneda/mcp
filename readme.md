@@ -53,11 +53,6 @@ git clone <repository-url>
 cd <repository-directory>
 ```
 
-### Configuration
-To run in development:
-```bash
- LUMAAI_API_KEY=luma-02205263-af26-4e07-97f8-bf7daa0db86d-ec57c7f7-27ee-4628-a3f0-8c4ac80735f6 mcp dev server.py --with lumaai^
-```
 
 ### Integration with Claude Desktop
 To use this server with Claude Desktop, add the following to your Claude Desktop configuration file:
@@ -76,10 +71,10 @@ To use this server with Claude Desktop, add the following to your Claude Desktop
         "requests",
         "mcp",
         "run",
-        "/path/to//server.py"
+        "/path/to/server.py"
       ],
       "env": {
-        "LUMAAI_API_KEY": "luma-02205263-af26-4e07-97f8-bf7daa0db86d-ec57c7f7-27ee-4628-a3f0-8c4ac80735f6"
+        "LUMAAI_API_KEY": "API_KEY_HERE"
       }
     }
 }
@@ -88,18 +83,10 @@ To use this server with Claude Desktop, add the following to your Claude Desktop
 Replace `/path/to/server.py` with the absolute path to your server.py file.
 
 ### Testing with MCP Inspector
-
-You can test the server using the MCP Inspector:
-
+To run in development:
 ```bash
-mcp dev server.py
+ LUMAAI_API_KEY=API_KEY_HERE mcp dev server.py --with lumaai --with requests
 ```
-
-## Limitations
-
-- The wallpaper setting functionality currently only works on macOS
-- Image generation may take up to a minute to complete
-- Generated images are temporarily stored in your system's temp directory
 
 ## License
 
